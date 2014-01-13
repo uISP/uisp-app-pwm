@@ -8,16 +8,68 @@
 #include <arch/vusb/usbdrv.h>
 #include <arch/delay.h>
 
+const int prescaler_lookup[] = { 0, 1, 8, 64, 256, 1024 };
+
+struct avr_pwm16 {
+	uint16_t icr; /* icr */
+	uint8_t cs; /* prescaler value */ 
+};
+
+struct avr_pwm16 avr_timer_conf(uint64_t period_us)
+{
+	int i; 
+	uint64_t tmp;
+	struct avr_pwm16 pwm;
+	for (i=1; i<ARRAY_SIZE(prescaler_lookup); i++)
+	{
+		tmp = (F_CPU / prescaler_lookup[i]) * period_us / 1000000 ;
+		if (tmp < 65536) 
+			break;
+	}	
+	pwm.icr = (uint16_t) tmp;
+	pwm.cs = i;
+	return pwm;
+} 
+
+void pwm_init(struct avr_pwm16* conf)
+{
+	TCCR1A = 0;
+	TCCR1B = 0;
+	ICR1 = conf->icr;
+	TCCR1A = (1<<WGM11);
+	TCCR1B = (1 << WGM13) | (1<<WGM12) | conf->cs;
+	TCCR1A |= 2<<6;
+	DDRB |= 1<<1 | 1<<0;
+}
+
+char msg[128];
+struct avr_pwm16 conf;
 uchar   usbFunctionSetup(uchar data[8])
 {
 	usbRequest_t    *rq = (void *)data;
-	return 0;
+	if (rq->bRequest == 0) {
+		conf = avr_timer_conf(rq->wValue.word);
+		pwm_init(&conf);
+		sprintf(msg, "ICR: %u  | Prescaler: %u\n", conf.icr, conf.cs);
+	} else if (rq->bRequest == 1) {
+		uint64_t hticks = ((uint64_t) (F_CPU / prescaler_lookup[conf.cs])) * rq->wValue.word / 1000000 ;
+		if (rq->wIndex.word == 0) 
+			OCR1A = (uint16_t) hticks;
+		else
+			OCR1B = (uint16_t) hticks;
+		sprintf(msg, "Channel %d ticks %u\n", rq->wIndex.word, (uint16_t) hticks);
+	}
+	usbMsgPtr = msg;
+	return (strlen(msg)+1);
+
 }
 
 uchar usbFunctionWrite(uchar *data, uchar len)
 {
 
 }
+
+
 
 inline void usbReconnect()
 {
@@ -34,32 +86,16 @@ ANTARES_INIT_LOW(io_init)
 	
 }
 
-/*
+
 ANTARES_INIT_HIGH(uinit)
 {
   	usbInit();
 }
-*/
 
-const int prescaler_lookup[] = { 0, 1, 8, 64, 256, 1024 };
+
 
 
 /*
-int pwm_setup(int period_ns)
-{
-	int i; 
-	uint32_t tmp;
-	uint16_t icr;
-	for (i=ARRAY_SIZE(prescaler_lookup); i>=0; i--)
-	{
-		tmp = F_CPU / ms / prescaler_lookup[i];
-		if (tmp < 65535)
-			break;
-	}
-	icr = (uint16_t) tmp;
-} 
-
-
 #define PRESCALER 8
 #define ICR_VALUE  (F_CPU / 1000 * 20 / PRESCALER)
 #if ICR_VALUE > 65535
@@ -93,8 +129,5 @@ ANTARES_APP(usb_app)
 
 ANTARES_APP(usb_app)
 {
-	DDRB=0xff;
 	usbPoll();
-	PORTB^=0xff;
-	delay_ms(500);
 }
