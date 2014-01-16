@@ -36,10 +36,10 @@ void pwm_init(struct avr_pwm16* conf)
 	TCCR1A = 0;
 	TCCR1B = 0;
 	ICR1 = conf->icr;
-	TCCR1A = (1<<WGM11);
+	TCCR1A = (1<<COM1A1)|(1<<COM1B1)|(1<<WGM11);
 	TCCR1B = (1 << WGM13) | (1<<WGM12) | conf->cs;
 	TCCR1A |= 2<<6;
-	DDRB |= 1<<1 | 1<<0;
+	DDRB |= 1<<1 | 1<<2;
 }
 
 char msg[128];
